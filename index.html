@@ -82,6 +82,9 @@
   .count-pill b{color:var(--orange-2)}
 
   .cards{display:flex;flex-direction:column;gap:12px}
+  .month-head{display:flex;align-items:center;gap:10px;font-family:'Bricolage Grotesque';font-weight:800;color:#fff;font-size:1rem;text-transform:uppercase;letter-spacing:.04em;margin:18px 0 4px;padding-bottom:8px;border-bottom:2px solid var(--orange)}
+  .month-head:first-child{margin-top:0}
+  .month-head .month-count{font-family:'Hanken Grotesk';font-weight:700;font-size:.72rem;color:var(--orange-2);background:rgba(232,92,0,.14);padding:2px 9px;border-radius:20px;letter-spacing:0}
   .card{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;transition:border-color .15s}
   .card.sel{border-color:var(--orange);box-shadow:0 0 0 1px var(--orange) inset}
   .card-top{display:flex;align-items:flex-start;gap:12px}
@@ -262,7 +265,7 @@
     <div class="toolbar">
       <div class="search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-        <input id="buscar" placeholder="Buscar cliente, comuna, producto, orden…">
+        <input id="buscar" placeholder="🔎 Buscar por N° de orden, cliente, comuna…">
       </div>
       <span class="count-pill"><b id="totalCount">0</b> órdenes</span>
       <button class="btn btn-ghost btn-sm" id="btnDeselect">Desmarcar todas</button>
@@ -308,7 +311,7 @@
         5. Copia el <b>Client ID</b> y pégalo aquí abajo.
       </div>
       <div class="field"><label>Google Client ID</label><input id="cfg_client" placeholder="xxxxxxxx.apps.googleusercontent.com"></div>
-      <div class="field"><label>ID o link de la carpeta de Drive</label><input id="cfg_folder" placeholder="1gGKWeSWenR3hkbruFQeoF3EhsOkJleQK"></div>
+      <div class="field"><label>ID o link de la carpeta de Drive</label><input id="cfg_folder" placeholder="1h0E7TpP1tK-BTEf92vsuwPBv62PERi1d"></div>
       <button class="btn btn-primary" id="cfgSave">Guardar configuración</button>
     </div>
   </div>
@@ -336,6 +339,14 @@
     return f.horario||"";
   }
 
+  /* fechas y meses */
+  var MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  function parseFecha(f){ if(!f||!f.fecha) return null; var m=String(f.fecha).match(/(\d{1,2})-(\d{1,2})-(\d{4})/); return m?{d:+m[1],mo:+m[2],y:+m[3]}:null; }
+  function monthKey(f){ var p=parseFecha(f); return p?(p.y*100+p.mo):0; }
+  function dayKey(f){ var p=parseFecha(f); return p?(p.y*10000+p.mo*100+p.d):0; }
+  function monthLabel(f){ var p=parseFecha(f); return p?(MESES[p.mo-1]+" "+p.y):"Sin fecha"; }
+  function hoyFecha(){ var d=new Date(); return String(d.getDate()).padStart(2,"0")+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+d.getFullYear(); }
+
   /* storage */
   var memStore={};
   var hasLS=(function(){try{var k="__t";localStorage.setItem(k,"1");localStorage.removeItem(k);return true;}catch(e){return false;}})();
@@ -355,8 +366,8 @@
 
   /* CONFIG DRIVE */
   function getFolderId(v){ if(!v) return ""; var m=v.match(/folders\/([A-Za-z0-9_\-]+)/); return m?m[1]:v.trim(); }
-  function cfg(){ return { client:(lsGet("rm_gclient")||DEFAULT_CLIENT_ID||"").trim(), folder:getFolderId(lsGet("rm_gfolder")||"1gGKWeSWenR3hkbruFQeoF3EhsOkJleQK") }; }
-  function openCfg(){ $("cfg_client").value=lsGet("rm_gclient")||DEFAULT_CLIENT_ID||""; $("cfg_folder").value=lsGet("rm_gfolder")||"1gGKWeSWenR3hkbruFQeoF3EhsOkJleQK"; $("cfgOverlay").classList.add("open"); }
+  function cfg(){ return { client:(lsGet("rm_gclient")||DEFAULT_CLIENT_ID||"").trim(), folder:getFolderId(lsGet("rm_gfolder")||"1h0E7TpP1tK-BTEf92vsuwPBv62PERi1d") }; }
+  function openCfg(){ $("cfg_client").value=lsGet("rm_gclient")||DEFAULT_CLIENT_ID||""; $("cfg_folder").value=lsGet("rm_gfolder")||"1h0E7TpP1tK-BTEf92vsuwPBv62PERi1d"; $("cfgOverlay").classList.add("open"); }
   $("btnConfig").addEventListener("click", openCfg);
   $("cfgClose").addEventListener("click", function(){ $("cfgOverlay").classList.remove("open"); });
   $("cfgOverlay").addEventListener("click", function(e){ if(e.target===this) this.classList.remove("open"); });
@@ -433,6 +444,7 @@
     var tm=telLine.match(/(\d[\d\s.\-]{6,})/); res.telefono=tm?tm[1].replace(/[^\d]/g,""):"";
     var om=all.match(/N[UÚ]MERO DE ORDEN\s*[:#]?\s*(\d{3,})/i); res.orden=om?om[1]:"";
     var em=all.match(/[\w.+\-]+@[\w.\-]+\.\w{2,}/); res.correo=em?em[0]:"";
+    var fm=all.match(/FECHA\s*[:\-]?\s*(\d{1,2}-\d{1,2}-\d{4})/i); res.fecha=fm?fm[1]:"";
     var region=all.toUpperCase().split(/CONDICIONES GENERALES/)[0];
     var codes=region.match(/[A-ZÑ]{3,}(?:_[A-Z0-9.#]+)+/g)||[];
     var counts={},order=[],total=0;
@@ -453,7 +465,7 @@
     if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden;}); if(ex) return "dup"; }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
-      orden:r.orden||"", correo:r.correo||"", sel:false, obs:"" });
+      orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", sel:false, obs:"" });
     return true;
   }
 
@@ -484,7 +496,7 @@
     var data={ cliente:cliente, direccion:$("f_direccion").value.trim(), comuna:$("f_comuna").value.trim(),
       telefono:$("f_telefono").value.trim(), producto:$("f_producto").value.trim(), cantidad:$("f_cantidad").value.trim() };
     if(editingId){ var f=facturas.find(function(x){return x.id===editingId;}); if(f){ Object.keys(data).forEach(function(k){f[k]=data[k];}); } exitEdit(); toast("Cambios guardados ✓"); }
-    else { data.id=uid(); data.hd=""; data.hh=""; data.horario=""; data.orden=""; data.correo=""; data.sel=false; data.obs=""; facturas.unshift(data); toast("Orden agregada ✓"); }
+    else { data.id=uid(); data.hd=""; data.hh=""; data.horario=""; data.orden=""; data.correo=""; data.fecha=hoyFecha(); data.sel=false; data.obs=""; facturas.unshift(data); toast("Orden agregada ✓"); }
     save(); clearForm(); render();
   }
   function startEdit(id){
@@ -501,13 +513,14 @@
     var fl=facturas.filter(function(f){ if(!filtro) return true; return (f.cliente+" "+f.comuna+" "+f.producto+" "+f.direccion+" "+(f.orden||"")).toLowerCase().indexOf(filtro)!==-1; });
     if(facturas.length===0){ lista.innerHTML='<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg><br>No hay órdenes todavía.<br>Conecta Drive o sube un PDF.</div>'; updateSel(); return; }
     if(fl.length===0){ lista.innerHTML='<div class="empty">Sin resultados para “'+esc(filtro)+'”.</div>'; updateSel(); return; }
-    lista.innerHTML=fl.map(function(f){
+    var cardHtml=function(f){
       var m=[];
       if(f.direccion) m.push('<span>📍 <b>'+esc(f.direccion)+'</b></span>');
       if(f.comuna)    m.push('<span>🏙️ '+esc(f.comuna)+'</span>');
       if(f.telefono)  m.push('<span>📞 '+esc(f.telefono)+'</span>');
       if(f.producto)  m.push('<span>📦 '+esc(f.producto)+'</span>');
       if(f.cantidad)  m.push('<span>🔢 Cant: '+esc(f.cantidad)+'</span>');
+      if(f.fecha)     m.push('<span>📅 '+esc(f.fecha)+'</span>');
       var hs=horarioStr(f); if(hs) m.push('<span class="hr-pill">🕒 '+esc(hs)+'</span>');
       var orden=f.orden?'<span class="orden">Orden #'+esc(f.orden)+'</span>':'';
       return '<div class="card '+(f.sel?'sel':'')+'" data-id="'+f.id+'">'+
@@ -527,6 +540,13 @@
           '<textarea data-act="obs" placeholder="Ej: Instalar 3 screen con cenefa + 2 doble, todo a techo">'+esc(f.obs)+'</textarea>'+
         '</div>'+
       '</div>';
+    };
+    // ordenar por fecha (mes más reciente primero) y agrupar por mes
+    fl.sort(function(a,b){ return dayKey(b)-dayKey(a); });
+    var groups=[], idx={};
+    fl.forEach(function(f){ var k=monthLabel(f); if(!(k in idx)){ idx[k]=groups.length; groups.push({label:k,items:[]}); } groups[idx[k]].items.push(f); });
+    lista.innerHTML=groups.map(function(g){
+      return '<div class="month-head">'+esc(g.label)+'<span class="month-count">'+g.items.length+'</span></div>'+g.items.map(cardHtml).join("");
     }).join("");
     updateSel();
   }
