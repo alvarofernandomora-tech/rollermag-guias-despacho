@@ -166,6 +166,18 @@
   .firma .line{border-bottom:1.5px solid #111;height:34px;margin-bottom:6px}
   .firma label{font-weight:700;font-size:.85rem}
 
+  .gt-infotitle{background:#0d0d0d;color:#fff;font-family:'Hanken Grotesk';font-weight:700;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;padding:6px 10px;margin-top:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  table.gt-info{width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:6px}
+  table.gt-info td{border:1px solid #cfcfcf;padding:6px 10px;vertical-align:top}
+  table.gt-info td.k{background:#f1efe8;font-weight:700;width:130px;white-space:nowrap;text-transform:uppercase;font-size:.68rem;letter-spacing:.03em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .gt-sec{background:var(--orange);color:#fff;font-family:'Bricolage Grotesque';font-weight:800;font-size:1rem;padding:6px 12px;margin:18px 0 0;letter-spacing:.02em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  table.gt{width:100%;border-collapse:collapse;font-size:.76rem;margin-bottom:2px}
+  table.gt th{background:#5f5e5a;color:#fff;font-family:'Hanken Grotesk';font-weight:700;text-align:left;padding:7px 8px;border:1px solid #5f5e5a;text-transform:uppercase;letter-spacing:.02em;font-size:.64rem;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  table.gt td{border:1px solid #cfcfcf;padding:7px 8px;vertical-align:top}
+  table.gt td.n,table.gt th.n{text-align:center;width:36px;font-weight:700}
+  table.gt td.c,table.gt th.c{text-align:center;white-space:nowrap}
+  .gt-empty{padding:30px;text-align:center;color:#999;font-size:.9rem;line-height:1.6}
+
   .toast{position:fixed;bottom:130px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;border:1px solid var(--orange);padding:12px 20px;border-radius:10px;font-size:.88rem;z-index:200;opacity:0;pointer-events:none;transition:all .25s;max-width:90%;text-align:center}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -289,7 +301,7 @@
 <div class="overlay" id="overlay">
   <div class="modal">
     <div class="modal-bar">
-      <h3>Vista previa · Guía de Despacho</h3>
+      <h3 id="guiaTitle">Vista previa · Guía de Despacho</h3>
       <button class="btn btn-primary btn-sm" id="btnPrint">🖨️ Imprimir / PDF</button>
       <button class="btn btn-ghost btn-sm" id="btnClose">Cerrar</button>
     </div>
@@ -453,11 +465,54 @@
     res.cantidad=total?String(total):"";
     return res;
   }
+  /* Parser posicional de cortinas: extrae secciones + filas (ubicación, cortina,
+     telas, cantidad, ancho, alto) leyendo por bandas de coordenada X.
+     Bota las columnas de Valor (x>=470) → guía sin precios. */
+  function parseCortinas(cells){
+    var ITEM=[40,57],UBIC=[57,148],CORT=[148,225],PROD=[225,370],CANT=[370,400],ANCHO=[400,437],ALTO=[437,470];
+    var FAM=/cortinas|toldo|toldos|roller|doble|dobles|screen|blackout|sunscreen|vertical|verticales|du[oó]/i;
+    function band(x){ if(x>=ITEM[0]&&x<ITEM[1])return"item"; if(x>=UBIC[0]&&x<UBIC[1])return"ubic"; if(x>=CORT[0]&&x<CORT[1])return"cort"; if(x>=PROD[0]&&x<PROD[1])return"prod"; if(x>=CANT[0]&&x<CANT[1])return"cant"; if(x>=ANCHO[0]&&x<ANCHO[1])return"ancho"; if(x>=ALTO[0]&&x<ALTO[1])return"alto"; return"price"; }
+    var sorted=cells.slice().sort(function(a,b){return a.y-b.y||a.x-b.x;});
+    var rows=[];
+    sorted.forEach(function(c){ var r=null; for(var i=rows.length-1;i>=0;i--){ if(Math.abs(rows[i].y-c.y)<=3){r=rows[i];break;} if(rows[i].y<c.y-3)break; } if(!r){r={y:c.y,cells:[]};rows.push(r);} r.cells.push(c); });
+    rows.sort(function(a,b){return a.y-b.y;});
+    function jrow(r){ return r.cells.slice().sort(function(a,b){return a.x-b.x;}).map(function(c){return c.s;}).join(" "); }
+    var hdr=[]; for(var i=0;i<rows.length;i++){ if(rows[i].cells.some(function(c){return /UBICAC/i.test(c.s);})) hdr.push(i); }
+    if(hdr.length===0) return [];
+    var endY=Infinity;
+    for(var i=hdr[0]+1;i<rows.length;i++){ if(/DOMOTICA|CONDICIONES GENERALES|TOTAL CORTINAS NETO/.test(jrow(rows[i]).toUpperCase())){ endY=rows[i].y; break; } }
+    function titleIdx(hi){ for(var j=hi-1;j>=Math.max(hi-3,0);j--){ if(FAM.test(jrow(rows[j]))) return j; } return hi-1; }
+    function jo(a){ return a.slice().sort(function(x,y){return x.y-y.y||x.x-y.x;}).map(function(c){return c.s;}).join(" ").replace(/\s+/g," ").trim(); }
+    var secs=[];
+    for(var k=0;k<hdr.length;k++){
+      var hi=hdr[k], hy=rows[hi].y, title=jrow(rows[titleIdx(hi)]);
+      var ph=rows[hi].cells.filter(function(c){return c.x>=PROD[0]&&c.x<PROD[1];}).sort(function(a,b){return a.x-b.x;});
+      var pcols=[];
+      if(ph.length<=1){ pcols=[{label:(ph[0]?ph[0].s:"TELA"),x0:PROD[0],x1:PROD[1]}]; }
+      else { for(var j=0;j<ph.length;j++){ var px0=j===0?PROD[0]:(ph[j-1].x+ph[j].x)/2; var px1=j===ph.length-1?PROD[1]:(ph[j].x+ph[j+1].x)/2; pcols.push({label:ph[j].s,x0:px0,x1:px1}); } }
+      var topB=hy+6, botB=(k+1<hdr.length)?rows[titleIdx(hdr[k+1])].y:endY;
+      var anch=cells.filter(function(c){return c.y>=topB&&c.y<botB&&c.x>=ITEM[0]&&c.x<ITEM[1]&&/^\d+$/.test(c.s.trim());}).map(function(c){return c.y;}).sort(function(a,b){return a-b;});
+      if(anch.length===0){ secs.push({title:title,pcols:pcols.map(function(p){return p.label;}),items:[]}); continue; }
+      var bounds=[];
+      for(var j=0;j<anch.length;j++){ var hb=j>0?(anch[j]-anch[j-1])/2:(anch.length>1?(anch[j+1]-anch[j])/2:20); var ha=j<anch.length-1?(anch[j+1]-anch[j])/2:(anch.length>1?(anch[j]-anch[j-1])/2:20); bounds.push([Math.max(topB,anch[j]-hb),Math.min(botB,anch[j]+ha)]); }
+      var items=[]; for(var j=0;j<anch.length;j++){ var pm={}; pcols.forEach(function(p){pm[p.label]=[];}); items.push({item:String(j+1),ubic:[],cort:[],cant:[],ancho:[],alto:[],prod:pm}); }
+      cells.forEach(function(c){
+        if(!(c.y>=topB&&c.y<botB))return; var ii=-1;
+        for(var j=0;j<bounds.length;j++){ if(c.y>=bounds[j][0]&&c.y<bounds[j][1]){ii=j;break;} }
+        if(ii<0)return; var bd=band(c.x); if(bd==="item"||bd==="price")return;
+        if(bd==="prod"){ for(var q=0;q<pcols.length;q++){ if(c.x>=pcols[q].x0&&c.x<pcols[q].x1){items[ii].prod[pcols[q].label].push(c);break;} } }
+        else items[ii][bd].push(c);
+      });
+      var out=items.map(function(it){ var prod={}; Object.keys(it.prod).forEach(function(kk){prod[kk]=jo(it.prod[kk]);}); return {item:it.item,ubic:jo(it.ubic),cort:jo(it.cort),cant:jo(it.cant),ancho:jo(it.ancho),alto:jo(it.alto),prod:prod}; });
+      secs.push({title:title,pcols:pcols.map(function(p){return p.label;}),items:out});
+    }
+    return secs;
+  }
   function parseBuffer(buf){
     return pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise.then(function(pdf){
-      var lines=[],chain=Promise.resolve();
-      for(var p=1;p<=pdf.numPages;p++){ (function(pn){ chain=chain.then(function(){ return pdf.getPage(pn).then(function(pg){return pg.getTextContent();}).then(function(tc){ lines=lines.concat(itemsToLines(tc.items)); }); }); })(p); }
-      return chain.then(function(){ return parsePdfText(lines); });
+      var lines=[],cells=[],chain=Promise.resolve();
+      for(var p=1;p<=pdf.numPages;p++){ (function(pn){ chain=chain.then(function(){ return pdf.getPage(pn).then(function(pg){return pg.getTextContent();}).then(function(tc){ lines=lines.concat(itemsToLines(tc.items)); tc.items.forEach(function(it){ if(it.str&&it.str.trim()) cells.push({x:it.transform[4], y:(pn-1)*2000-it.transform[5], s:it.str}); }); }); }); })(p); }
+      return chain.then(function(){ var res=parsePdfText(lines); res.cortinas=parseCortinas(cells); return res; });
     });
   }
   function ingestParsed(r,name){
@@ -465,7 +520,7 @@
     if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden;}); if(ex) return "dup"; }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
-      orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", sel:false, obs:"" });
+      orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", cortinas:r.cortinas||[], sel:false, obs:"" });
     return true;
   }
 
@@ -527,7 +582,7 @@
         '<div class="card-top">'+
           '<div class="chk '+(f.sel?'on':'')+'" data-act="toggle" title="Seleccionar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg></div>'+
           '<div class="card-info"><div class="nombre">'+esc(f.cliente||"(sin nombre)")+orden+'</div><div class="meta">'+m.join("")+'</div></div>'+
-          '<div class="card-actions"><button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">✏️</button><button class="btn btn-danger btn-sm" data-act="del" title="Eliminar">🗑</button></div>'+
+          '<div class="card-actions"><button class="btn btn-primary btn-sm" data-act="trabajo" title="Generar guía de trabajo (sin valores)">🛠️ Trabajo</button><button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">✏️</button><button class="btn btn-danger btn-sm" data-act="del" title="Eliminar">🗑</button></div>'+
         '</div>'+
         '<div class="obs-zone">'+
           '<span class="zlabel">🕒 Horario de entrega</span>'+
@@ -558,6 +613,7 @@
     var act=e.target.closest("[data-act]"); if(!act) return;
     var a=act.getAttribute("data-act");
     if(a==="toggle"){ f.sel=!f.sel; save(); render(); }
+    else if(a==="trabajo"){ generarTrabajo(f); }
     else if(a==="edit"){ startEdit(id); }
     else if(a==="del"){ if(confirm("¿Eliminar la orden de "+(f.cliente||"este cliente")+"?")){ facturas=facturas.filter(function(x){return x.id!==id;}); save(); render(); toast("Eliminada"); } }
   });
@@ -596,6 +652,40 @@
       '<div class="g-contacto">+56 9 8588 2642 · www.rollermag.cl</div>'+
       '<table class="guia"><thead><tr><th>N°</th><th>Cliente</th><th>Dirección</th><th>Comuna</th><th>Teléfono</th><th>Producto</th><th>Horario</th><th>Cantidad</th><th>Observaciones</th></tr></thead><tbody>'+rows+'</tbody></table>'+
       '<div class="firmas"><div class="firma"><div class="line"></div><label>Firma Cliente:</label></div><div class="firma"><div class="line"></div><label>Firma Entrega:</label></div></div>';
+    $("guiaTitle").textContent="Vista previa · Guía de Despacho";
+    $("overlay").classList.add("open");
+  }
+
+  function generarTrabajo(f){
+    if(!f) return;
+    var secs=f.cortinas||[];
+    var dir=[f.direccion,f.comuna].filter(Boolean).join(", ");
+    var info='<table class="gt-info">'+
+      '<tr><td class="k">Cliente</td><td class="v">'+esc(f.cliente||"")+'</td></tr>'+
+      '<tr><td class="k">Dirección</td><td class="v">'+esc(dir)+'</td></tr>'+
+      '<tr><td class="k">Teléfono</td><td class="v">'+esc(f.telefono||"")+(f.correo?'</td></tr><tr><td class="k">Correo</td><td class="v">'+esc(f.correo):"")+'</td></tr>'+
+      '<tr><td class="k">N° de Orden</td><td class="v">'+esc(f.orden||"")+'</td></tr>'+
+    '</table>';
+    var body="";
+    if(!secs.length){ body='<div class="gt-empty">No se detectaron cortinas en este PDF.<br>Revisa con ✏️ o vuelve a cargar la factura.</div>'; }
+    secs.forEach(function(s){
+      var heads='<th class="n">Ítem</th><th>Ubicación</th><th>Cortina</th>'+
+        s.pcols.map(function(p){return '<th>'+esc(titleCase(p))+'</th>';}).join("")+
+        '<th class="c">Cant.</th><th class="c">Ancho (mt.)</th><th class="c">Alto (mt.)</th>';
+      var rws=s.items.map(function(it){
+        return '<tr><td class="n">'+esc(it.item)+'</td><td>'+esc(it.ubic)+'</td><td>'+esc(it.cort)+'</td>'+
+          s.pcols.map(function(p){return '<td>'+esc(it.prod[p]||"")+'</td>';}).join("")+
+          '<td class="c">'+esc(it.cant)+'</td><td class="c">'+esc(it.ancho)+'</td><td class="c">'+esc(it.alto)+'</td></tr>';
+      }).join("");
+      body+='<div class="gt-sec">'+esc(s.title)+'</div>'+
+        '<table class="gt"><thead><tr>'+heads+'</tr></thead><tbody>'+rws+'</tbody></table>';
+    });
+    $("guia").innerHTML=
+      '<div class="g-head"><div class="g-logo"><div class="rm-logo rm-logo-guia" role="img" aria-label="Rollermag"></div></div>'+
+        '<div class="gright"><div class="doc">Guía de Trabajo</div>'+(f.orden?'<div class="num">Orden #'+esc(f.orden)+'</div>':"")+'<div class="fecha">'+esc(f.fecha||hoyFecha())+'</div></div></div>'+
+      '<div class="g-contacto">Taller · Av. Perú 01167, La Cisterna · www.rollermag.cl</div>'+
+      '<div class="gt-infotitle">Información de Proyecto</div>'+info+body;
+    $("guiaTitle").textContent="Vista previa · Guía de Trabajo";
     $("overlay").classList.add("open");
   }
 
