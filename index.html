@@ -185,11 +185,9 @@
 
   @media print{
     @page{size:landscape;margin:10mm}
-    body{background:#fff;padding:0}
-    header.app,.wrap,.actionbar,.modal-bar,.toast{position:static}
-    body *{visibility:hidden}
-    .overlay#overlay,.overlay#overlay *{visibility:visible}
-    .overlay#overlay{position:absolute;inset:0;background:#fff;padding:0;display:block}
+    html,body{background:#fff;padding:0;margin:0}
+    body>*:not(#overlay){display:none !important}
+    .overlay#overlay{display:block !important;position:static;inset:auto;background:#fff;padding:0;overflow:visible}
     .modal{box-shadow:none;border-radius:0;max-width:none}
     .modal-bar{display:none}
     #guia{padding:0}
