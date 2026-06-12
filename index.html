@@ -351,10 +351,13 @@
 
   /* fechas y meses */
   var MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  var MES_NUM={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,setiembre:9,octubre:10,noviembre:11,diciembre:12};
   function parseFecha(f){ if(!f||!f.fecha) return null; var m=String(f.fecha).match(/(\d{1,2})-(\d{1,2})-(\d{4})/); return m?{d:+m[1],mo:+m[2],y:+m[3]}:null; }
-  function monthKey(f){ var p=parseFecha(f); return p?(p.y*100+p.mo):0; }
-  function dayKey(f){ var p=parseFecha(f); return p?(p.y*10000+p.mo*100+p.d):0; }
-  function monthLabel(f){ var p=parseFecha(f); return p?(MESES[p.mo-1]+" "+p.y):"Sin fecha"; }
+  function parseCarpeta(c){ if(!c) return null; var m=String(c).toLowerCase().match(/([a-zñ]+)\.?\s*(\d{2,4})/); if(!m) return null; var mo=MES_NUM[m[1]]; if(!mo) return null; var y=+m[2]; if(y<100) y+=2000; return {mo:mo,y:y}; }
+  function monthInfo(f){ var c=parseCarpeta(f&&f.carpeta); if(c) return c; var p=parseFecha(f); return p?{mo:p.mo,y:p.y}:null; }
+  function monthKey(f){ var p=monthInfo(f); return p?(p.y*100+p.mo):0; }
+  function dayKey(f){ var p=parseFecha(f); if(p) return p.y*10000+p.mo*100+p.d; var mi=monthInfo(f); return mi?(mi.y*10000+mi.mo*100):0; }
+  function monthLabel(f){ var p=monthInfo(f); return p?(MESES[p.mo-1]+" "+p.y):"Sin fecha"; }
   function hoyFecha(){ var d=new Date(); return String(d.getDate()).padStart(2,"0")+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+d.getFullYear(); }
 
   /* storage */
@@ -399,23 +402,35 @@
   function setDriveStatus(ok,txt){ $("driveStatus").innerHTML='<span class="dot'+(ok?' ok':'')+'"></span>'+(txt||(ok?"Conectado":"No conectado")); }
   $("btnDrive").addEventListener("click", function(){ var tc=ensureTokenClient(); if(!tc) return; setDriveStatus(false,"Conectando…"); tc.requestAccessToken(); });
 
-  function driveList(folderId){
-    var q=encodeURIComponent("'"+folderId+"' in parents and mimeType='application/pdf' and trashed=false");
-    var url="https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id,name)&pageSize=200&orderBy=createdTime desc";
-    return fetch(url,{headers:{Authorization:"Bearer "+accessToken}}).then(function(r){ if(!r.ok) throw new Error("list "+r.status); return r.json(); });
+  function driveQuery(q){
+    var url="https://www.googleapis.com/drive/v3/files?q="+encodeURIComponent(q)+"&fields=files(id,name,mimeType)&pageSize=1000&orderBy=name";
+    return fetch(url,{headers:{Authorization:"Bearer "+accessToken}}).then(function(r){ if(!r.ok) throw new Error("list "+r.status); return r.json(); }).then(function(d){ return d.files||[]; });
+  }
+  // Busca PDF directos en la carpeta + PDF dentro de cada subcarpeta (1 nivel),
+  // etiquetando cada uno con el nombre de su subcarpeta (ej: "JUNIO 26").
+  function gatherPdfs(folderId){
+    return driveQuery("'"+folderId+"' in parents and trashed=false").then(function(items){
+      var pdfs=items.filter(function(f){return f.mimeType==="application/pdf";}).map(function(f){return {id:f.id,name:f.name,carpeta:""};});
+      var subs=items.filter(function(f){return f.mimeType==="application/vnd.google-apps.folder";});
+      if(subs.length===0) return pdfs;
+      return Promise.all(subs.map(function(sf){
+        return driveQuery("'"+sf.id+"' in parents and mimeType='application/pdf' and trashed=false")
+          .then(function(fp){ return fp.map(function(f){return {id:f.id,name:f.name,carpeta:sf.name};}); })
+          .catch(function(){ return []; });
+      })).then(function(arrs){ return pdfs.concat(arrs.reduce(function(a,b){return a.concat(b);},[])); });
+    });
   }
   function driveDownload(fileId){ return fetch("https://www.googleapis.com/drive/v3/files/"+fileId+"?alt=media",{headers:{Authorization:"Bearer "+accessToken}}).then(function(r){ if(!r.ok) throw new Error("dl "+r.status); return r.arrayBuffer(); }); }
   function loadFromDrive(){
     var c=cfg(); setDriveStatus(true,"Conectado · buscando órdenes…");
-    $("parsing").textContent="Buscando PDF en la carpeta…"; $("parsing").classList.add("on");
-    driveList(c.folder).then(function(data){
-      var files=(data.files||[]);
-      if(files.length===0){ $("parsing").classList.remove("on"); setDriveStatus(true,"Conectado · 0 PDF"); toast("La carpeta no tiene PDF"); return; }
+    $("parsing").textContent="Buscando PDF en la carpeta y subcarpetas…"; $("parsing").classList.add("on");
+    gatherPdfs(c.folder).then(function(files){
+      if(files.length===0){ $("parsing").classList.remove("on"); setDriveStatus(true,"Conectado · 0 PDF"); toast("No encontré PDF en la carpeta ni en sus subcarpetas"); return; }
       setDriveStatus(true,"Conectado · "+files.length+" PDF");
       var done=0,ok=0,dup=0;
       files.forEach(function(file){
         $("parsing").textContent="Leyendo "+(done+1)+" de "+files.length+"…";
-        driveDownload(file.id).then(function(buf){return parseBuffer(buf);}).then(function(r){ done++; var a=ingestParsed(r,file.name); if(a==="dup")dup++; else if(a)ok++; if(done===files.length) finishBatch(ok,dup,files.length); })
+        driveDownload(file.id).then(function(buf){return parseBuffer(buf);}).then(function(r){ done++; var a=ingestParsed(r,file.name,file.carpeta); if(a==="dup")dup++; else if(a)ok++; if(done===files.length) finishBatch(ok,dup,files.length); })
           .catch(function(){ done++; if(done===files.length) finishBatch(ok,dup,files.length); });
       });
     }).catch(function(){ $("parsing").classList.remove("on"); setDriveStatus(false,"Error de conexión"); toast("No pude leer la carpeta. Revisa Client ID y origen (⚙️)."); });
@@ -513,12 +528,12 @@
       return chain.then(function(){ var res=parsePdfText(lines); res.cortinas=parseCortinas(cells); return res; });
     });
   }
-  function ingestParsed(r,name){
+  function ingestParsed(r,name,carpeta){
     if(!r || (!r.cliente && !r.orden)) return false;
     if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden;}); if(ex) return "dup"; }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
-      orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", cortinas:r.cortinas||[], sel:false, obs:"" });
+      orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", carpeta:carpeta||"", cortinas:r.cortinas||[], sel:false, obs:"" });
     return true;
   }
 
