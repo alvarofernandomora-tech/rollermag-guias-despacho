@@ -168,6 +168,15 @@
   table.guia .obs{font-weight:600}
 
   .firmas{display:flex;gap:60px;margin-top:46px;flex-wrap:wrap}
+  .cf-spacer{height:0}
+  .conforme{margin-top:12px;border:1.5px solid #111;border-radius:6px;padding:9px 16px 10px;page-break-inside:avoid;break-inside:avoid}
+  .conforme .cf-title{font-weight:800;font-size:.85rem;text-transform:uppercase;letter-spacing:.04em;color:#E85C00}
+  .conforme .cf-txt{font-size:.78rem;margin-top:3px;color:#222}
+  .conforme .cf-obs{margin-top:6px;font-size:.75rem;font-weight:700;display:flex;gap:8px;align-items:flex-end}
+  .conforme .cf-obs .ln{border-bottom:1px solid #999;height:18px;flex:1}
+  .conforme .firmas{margin-top:4px;gap:40px}
+  .conforme .firma .line{height:48px;margin-bottom:4px}
+  .conforme .firma label{font-size:.8rem}
   .firma{flex:1;min-width:220px}
   .firma .line{border-bottom:1.5px solid #111;height:34px;margin-bottom:6px}
   .firma label{font-weight:700;font-size:.85rem}
@@ -805,7 +814,15 @@
     return '<div class="g-head"><div class="g-logo"><div class="rm-logo rm-logo-guia" role="img" aria-label="Rollermag"></div></div>'+
         '<div class="gright"><div class="doc">Guía de Trabajo</div>'+(f.orden?'<div class="num">Orden #'+esc(f.orden)+'</div>':"")+(fecha||'')+'</div></div>'+
       '<div class="g-contacto">Taller · Av. Perú 01167, La Cisterna · www.rollermag.cl</div>'+
-      '<div class="gt-infotitle">Información de Proyecto</div>'+info+body;
+      '<div class="gt-infotitle">Información de Proyecto</div>'+info+body+
+      '<div class="cf-spacer"></div><div class="conforme">'+
+        '<div class="cf-title">Conformidad del cliente</div>'+
+        '<div class="cf-txt">Declaro haber recibido conforme la instalación de las cortinas detalladas en esta guía, en buen estado y funcionando correctamente.</div>'+
+        '<div class="firmas">'+
+          '<div class="firma"><div class="line"></div><label>Firma cliente CONFORME:</label></div>'+
+          '<div class="firma"><div class="line"></div><label>RUT:</label></div>'+
+        '</div>'+
+      '</div>';
   }
 
   /* ============================================================
@@ -1021,7 +1038,38 @@
   $("btnGenerar").addEventListener("click",generar);
   $("btnTrabajoSel").addEventListener("click",function(){ generarTrabajo(selList()); });
   $("btnCorteSel").addEventListener("click",function(){ generarCorte(selList()); });
-  $("btnPrint").addEventListener("click",function(){window.print();});
+  /* La caja de conformidad del cliente va siempre al pie de la última hoja de cada guía de trabajo.
+     Se simula la paginación (A4 horizontal, márgenes 10 mm = 1047 x 718 px) y se rellena con espacio. */
+  var PAGE_W=1047, PAGE_H=718, SAFE=10;
+  function fitConforme(){
+    var g=$("guia"), pgs=g.querySelectorAll(".pg");
+    if(!g.querySelector(".conforme")) return;
+    var prevW=g.style.width, prevP=g.style.padding;
+    g.style.width=PAGE_W+"px"; g.style.padding="0";
+    pgs.forEach(function(pg){
+      var sp=pg.querySelector(".cf-spacer"), box=pg.querySelector(".conforme"); if(!sp||!box) return;
+      sp.style.height="0px";
+      var blocks=[];
+      Array.prototype.forEach.call(pg.children,function(el){
+        if(el===sp||el===box) return;
+        if(el.matches("table.gt")){ var th=el.tHead; blocks.push({el:th,thead:0}); Array.prototype.forEach.call(el.tBodies[0].rows,function(tr){ blocks.push({el:tr,thead:th?th.getBoundingClientRect().height:0}); }); }
+        else blocks.push({el:el,thead:0});
+      });
+      var tops=blocks.map(function(b){return b.el.getBoundingClientRect().top;}), end=sp.getBoundingClientRect().top;
+      var y=0;
+      blocks.forEach(function(b,i){
+        var h=(i+1<blocks.length?tops[i+1]:end)-tops[i];
+        if(y+h>PAGE_H){ y=b.thead; }
+        y+=h;
+      });
+      var bh=box.getBoundingClientRect().height+parseFloat(getComputedStyle(box).marginTop||0);
+      var rest=PAGE_H-y;
+      sp.style.height=Math.max(0,(rest>=bh+SAFE)?(rest-bh-SAFE):(rest+PAGE_H-bh-SAFE))+"px";
+    });
+    g.style.width=prevW; g.style.padding=prevP;
+  }
+  window.addEventListener("beforeprint",fitConforme);
+  $("btnPrint").addEventListener("click",function(){ fitConforme(); window.print(); });
   $("btnClose").addEventListener("click",function(){$("overlay").classList.remove("open");});
   $("overlay").addEventListener("click",function(e){if(e.target===this)this.classList.remove("open");});
   $("f_cantidad").addEventListener("keydown",function(e){if(e.key==="Enter")addOrSave();});
