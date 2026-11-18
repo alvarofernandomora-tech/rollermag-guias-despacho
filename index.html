@@ -91,6 +91,8 @@
   .chk{width:24px;height:24px;flex:none;border-radius:7px;border:2px solid var(--line);background:var(--panel);cursor:pointer;display:grid;place-items:center;margin-top:2px;transition:all .15s}
   .chk.on{background:var(--orange);border-color:var(--orange)}
   .chk svg{opacity:0;transition:opacity .12s}
+  .chk .selnum{color:#fff;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:.85rem;line-height:1}
+  .chk.on{width:28px;height:28px}
   .chk.on svg{opacity:1}
   .card-info{flex:1;min-width:0}
   .card-info .nombre{font-weight:700;font-size:1rem;color:#fff}
@@ -156,7 +158,8 @@
   table.guia th{background:var(--ink);color:#fff;font-family:'Hanken Grotesk';font-weight:700;text-align:left;padding:8px;border:1px solid var(--ink);text-transform:uppercase;letter-spacing:.03em;font-size:.7rem;white-space:nowrap}
   table.guia td{border:1px solid #cfcfcf;padding:8px;vertical-align:top}
   table.guia tr:nth-child(even) td{background:#faf7f4}
-  table.guia td.n{text-align:center;font-weight:700;width:34px}
+  table.guia td.n{text-align:center;font-weight:800;width:34px;font-size:1rem}
+  .g-orden{font-size:.78rem;font-weight:700;color:#E85C00;margin:0 0 8px}
   table.guia td.q{text-align:center;font-weight:700;width:60px}
   table.guia .cli{font-weight:700}
   table.guia .obs{font-weight:600}
@@ -178,6 +181,9 @@
   table.gt td.c,table.gt th.c{text-align:center;white-space:nowrap}
   .gt-empty{padding:30px;text-align:center;color:#999;font-size:.9rem;line-height:1.6}
 
+  /* logo para documentos impresos (fondo blanco) */
+  .g-logo{background:none !important;padding:0 !important;border-radius:0 !important}
+  .rm-logo-guia{background-image:url('IMG_0107.PNG') !important;height:80px !important;width:274px !important;background-position:left center !important}
   /* orden de corte + varias hojas */
   .ab-btns{display:flex;gap:8px;flex-wrap:wrap}
   .pg+.pg{margin-top:40px;padding-top:30px;border-top:2px dashed #ccc}
@@ -573,7 +579,8 @@
       var rmItems=[], off=0;
       for(var p=1;p<=pdf.numPages;p++){ (function(pn){ chain=chain.then(function(){ return pdf.getPage(pn).then(function(pg){ var vp=pg.getViewport({scale:1}); return pg.getTextContent().then(function(tc){ return {tc:tc,h:vp.height}; }); }).then(function(o){ var tc=o.tc; lines=lines.concat(itemsToLines(tc.items)); tc.items.forEach(function(it){ if(it.str&&it.str.trim()){ cells.push({x:it.transform[4], y:(pn-1)*2000-it.transform[5], s:it.str}); rmItems.push({s:it.str,x:it.transform[4],w:it.width,y:off+o.h-it.transform[5]-(it.height||8)}); } }); off+=o.h; }); }); })(p); }
       return chain.then(function(){ var res=parsePdfText(lines); res.cortinas=parseCortinas(cells); try{ res.corteBase=rmParseCorte(rmItems).items; }catch(e){ res.corteBase=[]; }
-        if(!res.producto && res.corteBase.length){ var cnt={},ordn=[]; res.corteBase.forEach(function(r){ var lab=r.tipo==="Doble con cenefa"?"Doble c/cenefa":r.tipo==="Roller con cenefa"||r.tipo==="Roller cenefa cuadrada"?((/blackout/i.test(r.cortinaPdf)?"Blackout":"Screen")+" c/cenefa"):r.tipo==="Roller básica"?(/blackout/i.test(r.cortinaPdf)?"Blackout":"Screen"):(r.tipo||r.cortinaPdf||"Cortina"); if(!(lab in cnt)){cnt[lab]=0;ordn.push(lab);} cnt[lab]++; }); res.producto=ordn.map(function(l){return cnt[l]+" "+l;}).join(" + "); res.cantidad=String(res.corteBase.length); }
+        // cantidad = suma de la columna "Cantidad" de la cotización (= N° de cortinas leídas)
+        if(res.corteBase.length){ var cnt={},ordn=[]; res.corteBase.forEach(function(r){ var lab=r.tipo==="Doble con cenefa"?"Doble c/cenefa":r.tipo==="Roller con cenefa"||r.tipo==="Roller cenefa cuadrada"?((/blackout/i.test(r.cortinaPdf)?"Blackout":"Screen")+" c/cenefa"):r.tipo==="Roller básica"?(/blackout/i.test(r.cortinaPdf)?"Blackout":"Screen"):(r.tipo||r.cortinaPdf||"Cortina"); if(!(lab in cnt)){cnt[lab]=0;ordn.push(lab);} cnt[lab]++; }); res.producto=ordn.map(function(l){return cnt[l]+" "+l;}).join(" + "); res.cantidad=String(res.corteBase.length); }
         return res; });
     });
   }
@@ -582,7 +589,7 @@
     // misma orden = mismo N° y mismo cliente (hay N° repetidos entre clientes distintos)
     var nk=function(x){ return (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""); };
     if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden && (!f.cliente || !r.cliente || nk(f.cliente)===nk(r.cliente));});
-      if(ex){ if(!(ex.corteBase&&ex.corteBase.length) && r.corteBase && r.corteBase.length){ ex.corteBase=r.corteBase; if(!(ex.corte&&ex.corte.length)) delete ex.corte; } return "dup"; } }
+      if(ex){ if(r.corteBase && r.corteBase.length){ if(!(ex.corteBase&&ex.corteBase.length)){ ex.corteBase=r.corteBase; if(!(ex.corte&&ex.corte.length)) delete ex.corte; } ex.cantidad=r.cantidad; ex.producto=r.producto; } return "dup"; } }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
       orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", carpeta:carpeta||"", cortinas:r.cortinas||[], corteBase:r.corteBase||[], sel:false, obs:"" });
@@ -645,7 +652,7 @@
       var orden=f.orden?'<span class="orden">Orden #'+esc(f.orden)+'</span>':'';
       return '<div class="card '+(f.sel?'sel':'')+'" data-id="'+f.id+'">'+
         '<div class="card-top">'+
-          '<div class="chk '+(f.sel?'on':'')+'" data-act="toggle" title="Seleccionar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg></div>'+
+          '<div class="chk '+(f.sel?'on':'')+'" data-act="toggle" title="'+(f.sel?'N° '+selPos(f)+' en la guía · clic para quitar':'Seleccionar (se numera en el orden en que las marques)')+'">'+(f.sel?'<span class="selnum">'+selPos(f)+'</span>':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg>')+'</div>'+
           '<div class="card-info"><div class="nombre">'+esc(f.cliente||"(sin nombre)")+orden+'</div><div class="meta">'+m.join("")+'</div></div>'+
           '<div class="card-actions"><button class="btn btn-primary btn-sm" data-act="trabajo" title="Generar guía de trabajo (sin valores)">🛠️ Trabajo</button><button class="btn btn-primary btn-sm" data-act="corte" title="Generar orden de corte">✂️ Corte</button><button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">✏️</button><button class="btn btn-danger btn-sm" data-act="del" title="Eliminar">🗑</button></div>'+
         '</div>'+
@@ -671,13 +678,21 @@
     updateSel();
   }
   function updateSel(){ $("selCount").textContent=facturas.filter(function(f){return f.sel;}).length; }
+  /* orden de selección: la primera que se marca es la N° 1 de la guía */
+  function selList(){
+    return facturas.filter(function(f){return f.sel;}).map(function(f,i){return {f:f,i:i};})
+      .sort(function(a,b){ var x=a.f.selOrder==null?Infinity:a.f.selOrder, y=b.f.selOrder==null?Infinity:b.f.selOrder; return x===y?a.i-b.i:x-y; })
+      .map(function(o){return o.f;});
+  }
+  function selPos(f){ return selList().indexOf(f)+1; }
+  function nextSelOrder(){ var m=0; facturas.forEach(function(f){ if(f.sel&&f.selOrder!=null&&f.selOrder>m) m=f.selOrder; }); return m+1; }
 
   $("lista").addEventListener("click",function(e){
     var card=e.target.closest(".card"); if(!card) return;
     var id=card.getAttribute("data-id"), f=facturas.find(function(x){return x.id===id;}); if(!f) return;
     var act=e.target.closest("[data-act]"); if(!act) return;
     var a=act.getAttribute("data-act");
-    if(a==="toggle"){ f.sel=!f.sel; save(); render(); }
+    if(a==="toggle"){ if(f.sel){ f.sel=false; delete f.selOrder; } else { f.sel=true; f.selOrder=nextSelOrder(); } save(); render(); }
     else if(a==="trabajo"){ generarTrabajo([f]); }
     else if(a==="corte"){ generarCorte([f]); }
     else if(a==="edit"){ startEdit(id); }
@@ -700,13 +715,13 @@
     f.obs=e.target.value; save();
   });
   $("buscar").addEventListener("input",function(e){ filtro=e.target.value.trim().toLowerCase(); render(); });
-  $("btnDeselect").addEventListener("click",function(){ facturas.forEach(function(f){f.sel=false;}); save(); render(); });
+  $("btnDeselect").addEventListener("click",function(){ facturas.forEach(function(f){f.sel=false; delete f.selOrder;}); save(); render(); });
   $("btnClearAll").addEventListener("click",function(){ if(facturas.length && confirm("¿Vaciar toda la lista de órdenes?")){ facturas=[]; save(); render(); toast("Lista vaciada"); } });
 
   /* GUÍA */
   function fmtFecha(v){ if(!v) return new Date().toLocaleDateString("es-CL"); var p=v.split("-"); return p[2]+"/"+p[1]+"/"+p[0]; }
   function generar(){
-    var sel=facturas.filter(function(f){return f.sel;});
+    var sel=selList();
     if(sel.length===0){ toast("Marca al menos una orden para despachar"); return; }
     var num=$("g_num").value.trim(), fecha=fmtFecha($("g_fecha").value);
     var rows=sel.map(function(f,i){
@@ -716,6 +731,7 @@
       '<div class="g-head"><div class="g-logo"><div class="rm-logo rm-logo-guia" role="img" aria-label="Rollermag"></div></div>'+
         '<div class="gright"><div class="doc">Guía de Despacho</div>'+(num?'<div class="num">N° '+esc(num)+'</div>':'')+'<div class="fecha">'+fecha+'</div></div></div>'+
       '<div class="g-contacto">+56 9 8588 2642 · www.rollermag.cl</div>'+
+      '<div class="g-orden">Orden de instalación: comenzar por el N° 1 y seguir en orden.</div>'+
       '<table class="guia"><thead><tr><th>N°</th><th>Cliente</th><th>Dirección</th><th>Comuna</th><th>Teléfono</th><th>Producto</th><th>Horario</th><th>Cantidad</th><th>Observaciones</th></tr></thead><tbody>'+rows+'</tbody></table>'+
       '<div class="firmas"><div class="firma"><div class="line"></div><label>Firma Cliente:</label></div><div class="firma"><div class="line"></div><label>Firma Entrega:</label></div></div>';
     $("guiaTitle").textContent="Vista previa · Guía de Despacho";
@@ -967,8 +983,8 @@
   $("btnClearForm").addEventListener("click",function(){clearForm();exitEdit();});
   $("btnCancelEdit").addEventListener("click",function(){clearForm();exitEdit();});
   $("btnGenerar").addEventListener("click",generar);
-  $("btnTrabajoSel").addEventListener("click",function(){ generarTrabajo(facturas.filter(function(f){return f.sel;})); });
-  $("btnCorteSel").addEventListener("click",function(){ generarCorte(facturas.filter(function(f){return f.sel;})); });
+  $("btnTrabajoSel").addEventListener("click",function(){ generarTrabajo(selList()); });
+  $("btnCorteSel").addEventListener("click",function(){ generarCorte(selList()); });
   $("btnPrint").addEventListener("click",function(){window.print();});
   $("btnClose").addEventListener("click",function(){$("overlay").classList.remove("open");});
   $("overlay").addEventListener("click",function(e){if(e.target===this)this.classList.remove("open");});
