@@ -207,6 +207,7 @@
     table.ct{font-size:7px}
     table.ct th{font-size:6.5px;padding:3px 2px}
     table.ct td{padding:3px 2px}
+    table.ct tr{page-break-inside:avoid}
     .pg+.pg{page-break-before:always;break-before:page;margin-top:0;padding-top:0;border-top:0}
   }
 
@@ -444,34 +445,43 @@
   }
   // Busca PDF directos en la carpeta + PDF dentro de cada subcarpeta (1 nivel),
   // etiquetando cada uno con el nombre de su subcarpeta (ej: "JUNIO 26").
-  function gatherPdfs(folderId){
+  function gatherPdfs(folderId,carpeta,depth){
+    depth=depth||0;
     return driveQuery("'"+folderId+"' in parents and trashed=false").then(function(items){
-      var pdfs=items.filter(function(f){return f.mimeType==="application/pdf";}).map(function(f){return {id:f.id,name:f.name,carpeta:""};});
-      var subs=items.filter(function(f){return f.mimeType==="application/vnd.google-apps.folder";});
+      var pdfs=items.filter(function(f){return f.mimeType==="application/pdf"||/\.pdf$/i.test(f.name);}).map(function(f){return {id:f.id,name:f.name,carpeta:carpeta||""};});
+      var subs=depth<3?items.filter(function(f){return f.mimeType==="application/vnd.google-apps.folder";}):[];
       if(subs.length===0) return pdfs;
-      return Promise.all(subs.map(function(sf){
-        return driveQuery("'"+sf.id+"' in parents and mimeType='application/pdf' and trashed=false")
-          .then(function(fp){ return fp.map(function(f){return {id:f.id,name:f.name,carpeta:sf.name};}); })
-          .catch(function(){ return []; });
-      })).then(function(arrs){ return pdfs.concat(arrs.reduce(function(a,b){return a.concat(b);},[])); });
+      return Promise.all(subs.map(function(sf){ return gatherPdfs(sf.id, depth===0?sf.name:(carpeta||sf.name), depth+1).catch(function(){ return []; }); }))
+        .then(function(arrs){ return pdfs.concat(arrs.reduce(function(x,y){return x.concat(y);},[])); });
     });
   }
-  function driveDownload(fileId){ return fetch("https://www.googleapis.com/drive/v3/files/"+fileId+"?alt=media",{headers:{Authorization:"Bearer "+accessToken}}).then(function(r){ if(!r.ok) throw new Error("dl "+r.status); return r.arrayBuffer(); }); }
+  function driveDownloadOnce(fileId){ return fetch("https://www.googleapis.com/drive/v3/files/"+fileId+"?alt=media",{headers:{Authorization:"Bearer "+accessToken}}).then(function(r){ if(!r.ok) throw new Error("dl "+r.status); return r.arrayBuffer(); }); }
+  function driveDownload(fileId){
+    var tries=0;
+    function go(){ return driveDownloadOnce(fileId).catch(function(e){ tries++; if(tries>3) throw e; return new Promise(function(r){setTimeout(r,800*tries);}).then(go); }); }
+    return go();
+  }
+  var driveFails=[];
   function loadFromDrive(){
     var c=cfg(); setDriveStatus(true,"Conectado · buscando órdenes…");
     $("parsing").textContent="Buscando PDF en la carpeta y subcarpetas…"; $("parsing").classList.add("on");
     gatherPdfs(c.folder).then(function(files){
       if(files.length===0){ $("parsing").classList.remove("on"); setDriveStatus(true,"Conectado · 0 PDF"); toast("No encontré PDF en la carpeta ni en sus subcarpetas"); return; }
       setDriveStatus(true,"Conectado · "+files.length+" PDF");
-      var done=0,ok=0,dup=0;
-      files.forEach(function(file){
-        $("parsing").textContent="Leyendo "+(done+1)+" de "+files.length+"…";
-        driveDownload(file.id).then(function(buf){return parseBuffer(buf);}).then(function(r){ done++; var a=ingestParsed(r,file.name,file.carpeta); if(a==="dup")dup++; else if(a)ok++; if(done===files.length) finishBatch(ok,dup,files.length); })
-          .catch(function(){ done++; if(done===files.length) finishBatch(ok,dup,files.length); });
-      });
+      var done=0,ok=0,dup=0,next=0; driveFails=[];
+      function one(){
+        if(next>=files.length) return Promise.resolve();
+        var file=files[next++];
+        return driveDownload(file.id).then(function(buf){return parseBuffer(buf);}).then(function(r){ var a=ingestParsed(r,file.name,file.carpeta); if(a==="dup")dup++; else if(a)ok++; else driveFails.push(file.name+" (no reconocí cliente ni N° de orden)"); })
+          .catch(function(){ driveFails.push(file.name); })
+          .then(function(){ done++; $("parsing").textContent="Leyendo "+done+" de "+files.length+"…"; return one(); });
+      }
+      var workers=[]; for(var w=0;w<4;w++) workers.push(one());
+      Promise.all(workers).then(function(){ finishBatch(ok,dup,files.length); });
     }).catch(function(){ $("parsing").classList.remove("on"); setDriveStatus(false,"Error de conexión"); toast("No pude leer la carpeta. Revisa Client ID y origen (⚙️)."); });
   }
-  function finishBatch(ok,dup,total){ $("parsing").classList.remove("on"); save(); render(); var msg=ok+" cargadas"; if(dup) msg+=", "+dup+" ya estaban"; toast("Drive: "+msg+" (de "+total+")"); }
+  function finishBatch(ok,dup,total){ save(); render(); var msg=ok+" cargadas"; if(dup) msg+=", "+dup+" ya estaban"; toast("Drive: "+msg+" (de "+total+")");
+    if(driveFails.length){ $("parsing").innerHTML="⚠️ No pude leer "+driveFails.length+" PDF: "+driveFails.map(esc).join(", ")+". Puedes arrastrarlos a mano."; } else { $("parsing").classList.remove("on"); } }
 
   /* PARSER */
   function itemsToLines(items){
@@ -505,7 +515,7 @@
     var tm=telLine.match(/(\d[\d\s.\-]{6,})/); res.telefono=tm?tm[1].replace(/[^\d]/g,""):"";
     var om=all.match(/N[UÚ]MERO DE ORDEN\s*[:#]?\s*(\d{3,})/i); res.orden=om?om[1]:"";
     var em=all.match(/[\w.+\-]+@[\w.\-]+\.\w{2,}/); res.correo=em?em[0]:"";
-    var fm=all.match(/FECHA\s*[:\-]?\s*(\d{1,2}-\d{1,2}-\d{4})/i); res.fecha=fm?fm[1]:"";
+    var fm=all.match(/FECHA\s*[:\-]?\s*(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/i); res.fecha=fm?(fm[1].padStart(2,"0")+"-"+fm[2].padStart(2,"0")+"-"+fm[3]):"";
     var region=all.toUpperCase().split(/CONDICIONES GENERALES/)[0];
     var codes=region.match(/[A-ZÑ]{3,}(?:_[A-Z0-9.#]+)+/g)||[];
     var counts={},order=[],total=0;
@@ -562,12 +572,16 @@
       var lines=[],cells=[],chain=Promise.resolve();
       var rmItems=[], off=0;
       for(var p=1;p<=pdf.numPages;p++){ (function(pn){ chain=chain.then(function(){ return pdf.getPage(pn).then(function(pg){ var vp=pg.getViewport({scale:1}); return pg.getTextContent().then(function(tc){ return {tc:tc,h:vp.height}; }); }).then(function(o){ var tc=o.tc; lines=lines.concat(itemsToLines(tc.items)); tc.items.forEach(function(it){ if(it.str&&it.str.trim()){ cells.push({x:it.transform[4], y:(pn-1)*2000-it.transform[5], s:it.str}); rmItems.push({s:it.str,x:it.transform[4],w:it.width,y:off+o.h-it.transform[5]-(it.height||8)}); } }); off+=o.h; }); }); })(p); }
-      return chain.then(function(){ var res=parsePdfText(lines); res.cortinas=parseCortinas(cells); try{ res.corteBase=rmParseCorte(rmItems).items; }catch(e){ res.corteBase=[]; } return res; });
+      return chain.then(function(){ var res=parsePdfText(lines); res.cortinas=parseCortinas(cells); try{ res.corteBase=rmParseCorte(rmItems).items; }catch(e){ res.corteBase=[]; }
+        if(!res.producto && res.corteBase.length){ var cnt={},ordn=[]; res.corteBase.forEach(function(r){ var lab=r.tipo==="Doble con cenefa"?"Doble c/cenefa":r.tipo==="Roller con cenefa"||r.tipo==="Roller cenefa cuadrada"?((/blackout/i.test(r.cortinaPdf)?"Blackout":"Screen")+" c/cenefa"):r.tipo==="Roller básica"?(/blackout/i.test(r.cortinaPdf)?"Blackout":"Screen"):(r.tipo||r.cortinaPdf||"Cortina"); if(!(lab in cnt)){cnt[lab]=0;ordn.push(lab);} cnt[lab]++; }); res.producto=ordn.map(function(l){return cnt[l]+" "+l;}).join(" + "); res.cantidad=String(res.corteBase.length); }
+        return res; });
     });
   }
   function ingestParsed(r,name,carpeta){
     if(!r || (!r.cliente && !r.orden)) return false;
-    if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden;});
+    // misma orden = mismo N° y mismo cliente (hay N° repetidos entre clientes distintos)
+    var nk=function(x){ return (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""); };
+    if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden && (!f.cliente || !r.cliente || nk(f.cliente)===nk(r.cliente));});
       if(ex){ if(!(ex.corteBase&&ex.corteBase.length) && r.corteBase && r.corteBase.length){ ex.corteBase=r.corteBase; if(!(ex.corte&&ex.corte.length)) delete ex.corte; } return "dup"; } }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
@@ -919,8 +933,8 @@
       '<div class="g-contacto">Taller · Av. Perú 01167, La Cisterna · www.rollermag.cl</div>'+
       '<table class="gt-info"><tr><td class="k">Cliente</td><td class="v">'+esc(f.cliente||"")+'</td><td class="k">N° de Orden</td><td class="v">'+esc(f.orden||"")+'</td></tr>'+
       '<tr><td class="k">Dirección</td><td class="v">'+esc(dir)+'</td><td class="k">Cortinas</td><td class="v">'+rows.length+'</td></tr></table>'+
-      (rows.length?'<table class="ct"><tr>'+cols.map(function(c){return '<th'+(c[2]?' class="c"':'')+'>'+c[1]+'</th>';}).join("")+'</tr>'+
-        rows.map(function(r){ return '<tr>'+cols.map(function(c){ var k=c[0]; return '<td class="'+(c[2]?'c':'')+(k==="ubicacion"||k==="tela"?' l':'')+'">'+fmtN(r[k])+'</td>'; }).join("")+'</tr>'; }).join("")+'</table>'
+      (rows.length?'<table class="ct"><thead><tr>'+cols.map(function(c){return '<th'+(c[2]?' class="c"':'')+'>'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+
+        rows.map(function(r){ return '<tr>'+cols.map(function(c){ var k=c[0]; return '<td class="'+(c[2]?'c':'')+(k==="ubicacion"||k==="tela"?' l':'')+'">'+fmtN(r[k])+'</td>'; }).join("")+'</tr>'; }).join("")+'</tbody></table>'
         :'<div class="gt-empty">Sin cortinas.</div>')+
       '<div class="ct-note">Medidas en cm. Columnas naranjas = medidas de corte calculadas.</div>'+
       '<div class="firmas"><div class="firma"><div class="line"></div><label>Cortado por:</label></div><div class="firma"><div class="line"></div><label>Armado por:</label></div><div class="firma"><div class="line"></div><label>Revisado por:</label></div></div></div>';
