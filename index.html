@@ -531,6 +531,9 @@
     var all=lines.join("\n"),res={};
     res.cliente=titleCase(lineVal(lines,/^CLIENTE\s+(.+)$/i));
     var dir=lineVal(lines,/^DIRECCI[ÓO]N\s+(.+)$/i);
+    // cotizador nuevo: "DIRECCIÓN <calle>   COMUNA: <comuna>" en la misma línea
+    var cm=dir&&dir.match(/^(.*?)\s*COMUNA\s*:?\s*(.*)$/i);
+    if(cm){ res.direccion=titleCase(cm[1].replace(/[,\s]+$/,"")); res.comuna=titleCase(cm[2]); dir=""; }
     if(dir){ var parts=dir.split(",").map(function(s){return s.trim();}).filter(Boolean);
       if(parts.length>=2){ res.comuna=titleCase(parts[parts.length-1]); res.direccion=titleCase(parts.slice(0,-1).join(", ")); } else { res.direccion=titleCase(dir); res.comuna=""; } }
     var telLine=""; for(var i=0;i<lines.length;i++){ if(/TEL[EÉ]FONO/i.test(lines[i])){telLine=lines[i];break;} }
@@ -792,11 +795,11 @@
   function trabajoHtml(f,fecha){
     var secs=seccionesTrabajo(f);
     var dir=[f.direccion,f.comuna].filter(Boolean).join(", ");
+    // información en 2 columnas para dejar más espacio a la tabla y a la conformidad
     var info='<table class="gt-info">'+
-      '<tr><td class="k">Cliente</td><td class="v">'+esc(f.cliente||"")+'</td></tr>'+
-      '<tr><td class="k">Dirección</td><td class="v">'+esc(dir)+'</td></tr>'+
-      '<tr><td class="k">Teléfono</td><td class="v">'+esc(f.telefono||"")+(f.correo?'</td></tr><tr><td class="k">Correo</td><td class="v">'+esc(f.correo):"")+'</td></tr>'+
-      '<tr><td class="k">N° de Orden</td><td class="v">'+esc(f.orden||"")+'</td></tr>'+
+      '<tr><td class="k">Cliente</td><td class="v">'+esc(f.cliente||"")+'</td><td class="k">N° de Orden</td><td class="v">'+esc(f.orden||"")+'</td></tr>'+
+      '<tr><td class="k">Dirección</td><td class="v">'+esc(dir)+'</td><td class="k">Teléfono</td><td class="v">'+esc(f.telefono||"")+'</td></tr>'+
+      (f.correo?'<tr><td class="k">Correo</td><td class="v" colspan="3">'+esc(f.correo)+'</td></tr>':'')+
     '</table>';
     var body="";
     if(!secs.length){ body='<div class="gt-empty">No se detectaron cortinas en este PDF.<br>Revisa con ✏️ o vuelve a cargar la factura.</div>'; }
@@ -1062,7 +1065,8 @@
   $("btnCorteSel").addEventListener("click",function(){ generarCorte(selList()); });
   /* La caja de conformidad del cliente va siempre al pie de la última hoja de cada guía de trabajo.
      Se simula la paginación (A4 horizontal con 6 mm de borde = 1077 x 748 px) y se rellena con espacio. */
-  var PAGE_W=1077, PAGE_H=748, SAFE=4;
+  // alto conservador: sirve tanto con márgenes 0 (los de la app) como si el diálogo de impresión deja 10 mm
+  var PAGE_W=1047, PAGE_H=700, SAFE=4;
   function fitConforme(){
     var g=$("guia"), pgs=g.querySelectorAll(".pg");
     if(!g.querySelector(".conforme")) return;
@@ -1086,7 +1090,8 @@
       });
       var bh=box.getBoundingClientRect().height+parseFloat(getComputedStyle(box).marginTop||0);
       var rest=PAGE_H-y;
-      sp.style.height=Math.max(0,(rest>=bh+SAFE)?(rest-bh-SAFE):(rest+PAGE_H-bh-SAFE))+"px";
+      // si cabe: se empuja al pie de la hoja. Si no cabe seguro: va pegado a la tabla (queda en la misma hoja si hay espacio).
+      sp.style.height=Math.max(0,(rest>=bh+SAFE)?(rest-bh-SAFE):0)+"px";
     });
     g.style.width=prevW; g.style.padding=prevP;
   }
