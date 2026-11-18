@@ -590,7 +590,7 @@
     // misma orden = mismo N° y mismo cliente (hay N° repetidos entre clientes distintos)
     var nk=function(x){ return (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""); };
     if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden && (!f.cliente || !r.cliente || nk(f.cliente)===nk(r.cliente));});
-      if(ex){ if(r.corteBase && r.corteBase.length){ if(!(ex.corteBase&&ex.corteBase.length)){ ex.corteBase=r.corteBase; if(!(ex.corte&&ex.corte.length)) delete ex.corte; } ex.cantidad=r.cantidad; ex.producto=r.producto; } return "dup"; } }
+      if(ex){ if(r.corteBase && r.corteBase.length){ var hadBase=ex.corteBase&&ex.corteBase.length; ex.corteBase=r.corteBase; if(!hadBase && !(ex.corte&&ex.corte.length)) delete ex.corte; ex.cantidad=r.cantidad; ex.producto=r.producto; } return "dup"; } }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
       orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", carpeta:carpeta||"", cortinas:r.cortinas||[], corteBase:r.corteBase||[], sel:false, obs:"" });
@@ -749,8 +749,27 @@
     $("guiaTitle").textContent="Vista previa · Guía de Trabajo"+(list.length>1?" ("+list.length+")":"");
     $("overlay").classList.add("open");
   }
+  // cortinas para la guía de trabajo: se arman con el mismo lector de la orden de corte
+  // (lee bien cotizaciones largas); si no hay, se usa la lectura antigua
+  function seccionesTrabajo(f){
+    var base=f.corteBase||[];
+    if(!base.length) return (f.cortinas||[]).filter(function(s){return s.items&&s.items.length;});
+    var mt=function(v){ var n=parseFloat(v); return isNaN(n)?"":(n/100).toFixed(2).replace(".",","); };
+    var secs={roller:{title:"Cortinas Roller",pcols:["Tela"],items:[]}, doble:{title:"Cortinas Dobles",pcols:["Blackout / Screen"],items:[]}};
+    var last=null;
+    base.forEach(function(r){
+      var k=(r.tipo.indexOf("Doble")===0||r.tipo==="Dúo")?"doble":"roller", sec=secs[k];
+      // una fila por ítem de la cotización (si el ítem tiene Cantidad 2, va con Cant. 2)
+      var key=[k,r.item!=null?r.item:"",r.ubicacion,r.cortinaPdf,r.tela,r.ancho,r.alto].join("|");
+      if(last&&last.key===key){ last.it.cant=String(+last.it.cant+1); return; }
+      var it={item:r.item!=null?String(r.item):String(sec.items.length+1), ubic:r.ubicacion, cort:r.cortinaPdf, cant:"1", ancho:mt(r.ancho), alto:mt(r.alto), prod:{}};
+      it.prod[sec.pcols[0]]=r.tela||"";
+      sec.items.push(it); last={key:key,it:it};
+    });
+    return [secs.roller,secs.doble].filter(function(s){return s.items.length;});
+  }
   function trabajoHtml(f){
-    var secs=f.cortinas||[];
+    var secs=seccionesTrabajo(f);
     var dir=[f.direccion,f.comuna].filter(Boolean).join(", ");
     var info='<table class="gt-info">'+
       '<tr><td class="k">Cliente</td><td class="v">'+esc(f.cliente||"")+'</td></tr>'+
@@ -892,7 +911,7 @@
       const base = { ubicacion:J("ubic"), cortinaPdf:J("cortina"),
         tela: isDoble ? [J("blackout"),J("screen")].filter(x=>x).join(" / ") : J("tela"),
         ancho: m2cm(nums[0]&&nums[0].s), alto: m2cm(nums[1]&&nums[1].s) };
-      for(let q=0;q<cant;q++) ord.items.push(rmInterpret(base));
+      for(let q=0;q<cant;q++){ const x=rmInterpret(base); x.item=a.s; ord.items.push(x); }
     });
   });
   return ord;
@@ -916,7 +935,8 @@
     ["tela1","Tela 1",1],["tela2","Tela 2",1],["largoTela","Largo tela",1],["pLateral","P. lateral",1],["pDescanso","P. descanso",1],
     ["supleCant","Suple cant."],["supleAncho","Suple ancho"],["color","Color"],["motorizado","Motor"],["cadena","Cadena"],["escalera","Escalera"],
     ["soportes","Soportes",1],["anclajes","Anclajes",1],["tirantes","Tirantes",1],["largoTirante","Largo tirante",1]];
-  function fmtN(v){ return typeof v==="number"?v.toLocaleString("es-CL",{minimumFractionDigits:1,maximumFractionDigits:1}):esc(v); }
+  // números de la orden de corte: 1 decimal, pero sin ",0" (255,0 -> 255; 159,5 -> 159,5)
+  function fmtN(v){ return typeof v==="number"?v.toLocaleString("es-CL",{minimumFractionDigits:0,maximumFractionDigits:1}):esc(v); }
   var corteIds=[];
   function generarCorte(list){
     list=(list||[]).filter(Boolean);
