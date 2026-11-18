@@ -158,7 +158,9 @@
   table.guia th{background:var(--ink);color:#fff;font-family:'Hanken Grotesk';font-weight:700;text-align:left;padding:8px;border:1px solid var(--ink);text-transform:uppercase;letter-spacing:.03em;font-size:.7rem;white-space:nowrap}
   table.guia td{border:1px solid #cfcfcf;padding:8px;vertical-align:top}
   table.guia tr:nth-child(even) td{background:#faf7f4}
-  .gright .fecha b{color:#111;font-size:1.05rem}
+  .gright .f-inst{font-size:.95rem;color:#111;margin-top:4px}
+  .gright .f-inst b{font-size:1.25rem;font-weight:800}
+  .gright .f-imp{font-size:.62rem;color:#888;margin-top:3px}
   table.guia td.n{text-align:center;font-weight:800;width:56px;font-size:1.9rem;line-height:1;color:#E85C00;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .g-orden{font-size:.78rem;font-weight:700;color:#E85C00;margin:0 0 8px}
   table.guia td.q{text-align:center;font-weight:700;width:60px}
@@ -206,14 +208,17 @@
   table.ct th{background:#1A1A1A;color:#fff;padding:5px 3px;border:1px solid #555;font-size:.55rem;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   table.ct th.c{background:var(--orange)}
   table.ct td{border:1px solid #999;padding:4px 3px;text-align:center}
-  table.ct td.c{background:#FDF0E7;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  table.ct td.c,table.ct td.num{font-size:.95rem;font-weight:800;white-space:nowrap}
+  table.ct td.c{background:#FDF0E7;font-weight:800;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   table.ct td.l{text-align:left}
   .ct-note{font-size:.64rem;color:#555;margin-top:4px}
   @media print{
     .no-print{display:none !important}
-    table.ct{font-size:7px}
-    table.ct th{font-size:6.5px;padding:3px 2px}
-    table.ct td{padding:3px 2px}
+    table.ct{font-size:10px;table-layout:auto}
+    table.ct th{font-size:8px;padding:4px 2px;line-height:1.1}
+    table.ct td{padding:6px 3px;line-height:1.15}
+    table.ct td.c,table.ct td.num{font-size:21px;font-weight:800;white-space:nowrap;letter-spacing:-.3px}
+    table.ct td.l{font-size:9px}
     table.ct tr{page-break-inside:avoid}
     .pg+.pg{page-break-before:always;break-before:page;margin-top:0;padding-top:0;border-top:0}
   }
@@ -721,19 +726,24 @@
 
   /* GUÍA */
   function fmtFecha(v){ if(!v) return new Date().toLocaleDateString("es-CL"); var p=v.split("-"); return p[2]+"/"+p[1]+"/"+p[0]; }
+  // fecha de instalación elegida abajo (obligatoria para guía de despacho y de trabajo)
+  function fechaInstalacion(){
+    var fv=$("g_fecha").value;
+    if(!fv){ toast("Elige la fecha de instalación (abajo, junto a N° Guía)"); $("g_fecha").focus(); try{ $("g_fecha").showPicker(); }catch(e){} return null; }
+    var dias=["domingo","lunes","martes","miércoles","jueves","viernes","sábado"], pf=fv.split("-");
+    return '<div class="f-inst">Fecha de instalación: <b>'+dias[new Date(+pf[0],+pf[1]-1,+pf[2]).getDay()]+' '+fmtFecha(fv)+'</b></div><div class="f-imp">Impresa: '+hoyFecha()+'</div>';
+  }
   function generar(){
     var sel=selList();
     if(sel.length===0){ toast("Marca al menos una orden para despachar"); return; }
-    var fv=$("g_fecha").value;
-    if(!fv){ toast("Elige la fecha de instalación (abajo, junto a N° Guía)"); $("g_fecha").focus(); try{ $("g_fecha").showPicker(); }catch(e){} return; }
-    var dias=["domingo","lunes","martes","miércoles","jueves","viernes","sábado"], pf=fv.split("-");
-    var num=$("g_num").value.trim(), fecha="Fecha de instalación: <b>"+dias[new Date(+pf[0],+pf[1]-1,+pf[2]).getDay()]+" "+fmtFecha(fv)+"</b>";
+    var fecha=fechaInstalacion(); if(!fecha) return;
+    var num=$("g_num").value.trim();
     var rows=sel.map(function(f,i){
       return '<tr><td class="n">'+(i+1)+'</td><td class="cli">'+esc(f.cliente)+'</td><td>'+esc(f.direccion)+'</td><td>'+esc(f.comuna)+'</td><td>'+esc(f.telefono)+'</td><td>'+esc(f.producto)+'</td><td>'+esc(horarioStr(f))+'</td><td class="q">'+esc(f.cantidad)+'</td><td class="obs">'+esc(f.obs).replace(/\n/g,"<br>")+'</td></tr>';
     }).join("");
     $("guia").innerHTML=
       '<div class="g-head"><div class="g-logo"><div class="rm-logo rm-logo-guia" role="img" aria-label="Rollermag"></div></div>'+
-        '<div class="gright"><div class="doc">Guía de Despacho</div>'+(num?'<div class="num">N° '+esc(num)+'</div>':'')+'<div class="fecha">'+fecha+'</div></div></div>'+
+        '<div class="gright"><div class="doc">Guía de Despacho</div>'+(num?'<div class="num">N° '+esc(num)+'</div>':'')+fecha+'</div></div>'+
       '<div class="g-contacto">+56 9 8588 2642 · www.rollermag.cl</div>'+
       '<div class="g-orden">Orden de instalación: comenzar por el N° 1 y seguir en orden.</div>'+
       '<table class="guia"><thead><tr><th>N°</th><th>Cliente</th><th>Dirección</th><th>Comuna</th><th>Teléfono</th><th>Producto</th><th>Horario</th><th>Cantidad</th><th>Observaciones</th></tr></thead><tbody>'+rows+'</tbody></table>'+
@@ -745,7 +755,8 @@
   function generarTrabajo(list){
     list=(list||[]).filter(Boolean);
     if(!list.length){ toast("Marca al menos una orden"); return; }
-    $("guia").innerHTML=list.map(function(f){ return '<div class="pg">'+trabajoHtml(f)+'</div>'; }).join("");
+    var fecha=fechaInstalacion(); if(!fecha) return;
+    $("guia").innerHTML=list.map(function(f){ return '<div class="pg">'+trabajoHtml(f,fecha)+'</div>'; }).join("");
     $("guiaTitle").textContent="Vista previa · Guía de Trabajo"+(list.length>1?" ("+list.length+")":"");
     $("overlay").classList.add("open");
   }
@@ -768,7 +779,7 @@
     });
     return [secs.roller,secs.doble].filter(function(s){return s.items.length;});
   }
-  function trabajoHtml(f){
+  function trabajoHtml(f,fecha){
     var secs=seccionesTrabajo(f);
     var dir=[f.direccion,f.comuna].filter(Boolean).join(", ");
     var info='<table class="gt-info">'+
@@ -792,7 +803,7 @@
         '<table class="gt"><thead><tr>'+heads+'</tr></thead><tbody>'+rws+'</tbody></table>';
     });
     return '<div class="g-head"><div class="g-logo"><div class="rm-logo rm-logo-guia" role="img" aria-label="Rollermag"></div></div>'+
-        '<div class="gright"><div class="doc">Guía de Trabajo</div>'+(f.orden?'<div class="num">Orden #'+esc(f.orden)+'</div>':"")+'<div class="fecha">'+esc(f.fecha||hoyFecha())+'</div></div></div>'+
+        '<div class="gright"><div class="doc">Guía de Trabajo</div>'+(f.orden?'<div class="num">Orden #'+esc(f.orden)+'</div>':"")+(fecha||'')+'</div></div>'+
       '<div class="g-contacto">Taller · Av. Perú 01167, La Cisterna · www.rollermag.cl</div>'+
       '<div class="gt-infotitle">Información de Proyecto</div>'+info+body;
   }
@@ -966,7 +977,8 @@
   }
   function corteSheet(f){
     var rows=corteRows(f).map(function(r,i){ var o=calcCorte(r), x={}; Object.keys(r).forEach(function(k){x[k]=r[k];}); Object.keys(o).forEach(function(k){x[k]=o[k];}); x.n=String(i+1); return x; });
-    var cols=CCOLS.filter(function(c){ return !c[2]||rows.some(function(r){return r[c[0]]!==""&&r[c[0]]!=null;}); });
+    var keep={n:1,ubicacion:1,ancho:1,alto:1,tipo:1};
+    var cols=CCOLS.filter(function(c){ return keep[c[0]]||rows.some(function(r){return r[c[0]]!==""&&r[c[0]]!=null;}); });
     var dir=[f.direccion,f.comuna].filter(Boolean).join(", ");
     return '<div class="pg"><div class="g-head"><div class="g-logo"><div class="rm-logo rm-logo-guia" role="img" aria-label="Rollermag"></div></div>'+
         '<div class="gright"><div class="doc">Orden de Corte</div>'+(f.orden?'<div class="num">Orden #'+esc(f.orden)+'</div>':"")+'<div class="fecha">Impresa: '+hoyFecha()+(f.fecha?' · Cotización: '+esc(f.fecha):'')+'</div></div></div>'+
@@ -974,10 +986,10 @@
       '<table class="gt-info"><tr><td class="k">Cliente</td><td class="v">'+esc(f.cliente||"")+'</td><td class="k">N° de Orden</td><td class="v">'+esc(f.orden||"")+'</td></tr>'+
       '<tr><td class="k">Dirección</td><td class="v">'+esc(dir)+'</td><td class="k">Cortinas</td><td class="v">'+rows.length+'</td></tr></table>'+
       (rows.length?'<table class="ct"><thead><tr>'+cols.map(function(c){return '<th'+(c[2]?' class="c"':'')+'>'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+
-        rows.map(function(r){ return '<tr>'+cols.map(function(c){ var k=c[0]; return '<td class="'+(c[2]?'c':'')+(k==="ubicacion"||k==="tela"?' l':'')+'">'+fmtN(r[k])+'</td>'; }).join("")+'</tr>'; }).join("")+'</tbody></table>'
+        rows.map(function(r){ return '<tr>'+cols.map(function(c){ var k=c[0]; return '<td class="'+(c[2]?'c':'')+(k==="ubicacion"||k==="tela"?' l':'')+(k==="ancho"||k==="alto"||k==="n"?' num':'')+'">'+fmtN(r[k])+'</td>'; }).join("")+'</tr>'; }).join("")+'</tbody></table>'
         :'<div class="gt-empty">Sin cortinas.</div>')+
       '<div class="ct-note">Medidas en cm. Columnas naranjas = medidas de corte calculadas.</div>'+
-      '<div class="firmas"><div class="firma"><div class="line"></div><label>Cortado por:</label></div><div class="firma"><div class="line"></div><label>Armado por:</label></div><div class="firma"><div class="line"></div><label>Revisado por:</label></div></div></div>';
+      '</div>';
   }
   function renderCorte(){
     var list=corteIds.map(function(id){return facturas.find(function(x){return x.id===id;});}).filter(Boolean);
