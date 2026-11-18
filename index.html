@@ -169,14 +169,12 @@
 
   .firmas{display:flex;gap:60px;margin-top:46px;flex-wrap:wrap}
   .cf-spacer{height:0}
-  .conforme{margin-top:12px;border:1.5px solid #111;border-radius:6px;padding:9px 16px 10px;page-break-inside:avoid;break-inside:avoid}
-  .conforme .cf-title{font-weight:800;font-size:.85rem;text-transform:uppercase;letter-spacing:.04em;color:#E85C00}
-  .conforme .cf-txt{font-size:.78rem;margin-top:3px;color:#222}
-  .conforme .cf-obs{margin-top:6px;font-size:.75rem;font-weight:700;display:flex;gap:8px;align-items:flex-end}
-  .conforme .cf-obs .ln{border-bottom:1px solid #999;height:18px;flex:1}
-  .conforme .firmas{margin-top:4px;gap:40px}
-  .conforme .firma .line{height:48px;margin-bottom:4px}
-  .conforme .firma label{font-size:.8rem}
+  .conforme{margin-top:8px;border-top:1.5px solid #111;padding:4px 0 0;display:flex;gap:28px;align-items:flex-end;page-break-inside:avoid;break-inside:avoid}
+  .conforme .cf-txt{flex:1.3;font-size:.68rem;color:#222;line-height:1.3;align-self:flex-start}
+  .conforme .cf-txt b{color:#E85C00;text-transform:uppercase;letter-spacing:.03em}
+  .conforme .cf-f{flex:1}
+  .conforme .cf-f .line{border-bottom:1.2px solid #111;height:34px}
+  .conforme .cf-f label{font-size:.68rem;font-weight:700}
   .firma{flex:1;min-width:220px}
   .firma .line{border-bottom:1.5px solid #111;height:34px;margin-bottom:6px}
   .firma label{font-weight:700;font-size:.85rem}
@@ -238,7 +236,10 @@
   @media (max-width:720px){.c-2,.c-3,.c-4,.c-5,.c-6{grid-column:span 6}.actionbar{padding:12px}}
 
   @media print{
-    @page{size:landscape;margin:10mm}
+    @page{size:landscape;margin:0}
+    table.pw{width:100%;border-collapse:collapse;border:0}
+    table.pw>thead>tr>td,table.pw>tfoot>tr>td{height:6mm;padding:0;border:0}
+    table.pw>tbody>tr>td{padding:0 6mm;border:0;vertical-align:top}
     html,body{background:#fff;padding:0;margin:0}
     body>*:not(#overlay){display:none !important}
     .overlay#overlay{display:block !important;position:static;inset:auto;background:#fff;padding:0;overflow:visible}
@@ -604,7 +605,7 @@
     // misma orden = mismo N° y mismo cliente (hay N° repetidos entre clientes distintos)
     var nk=function(x){ return (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,""); };
     if(r.orden){ var ex=facturas.find(function(f){return f.orden && f.orden===r.orden && (!f.cliente || !r.cliente || nk(f.cliente)===nk(r.cliente));});
-      if(ex){ if(r.corteBase && r.corteBase.length){ var hadBase=ex.corteBase&&ex.corteBase.length; ex.corteBase=r.corteBase; if(!hadBase && !(ex.corte&&ex.corte.length)) delete ex.corte; ex.cantidad=r.cantidad; ex.producto=r.producto; } return "dup"; } }
+      if(ex){ if(r.corteBase && r.corteBase.length){ var old=ex.corteBase||[], stale=!old.length || old.length!==r.corteBase.length || old.some(function(x){return x.ancho===""||x.ancho==null||x.alto===""||x.alto==null;}); ex.corteBase=r.corteBase; if(stale) delete ex.corte; ex.cantidad=r.cantidad; ex.producto=r.producto; } return "dup"; } }
     facturas.unshift({ id:uid(), cliente:r.cliente||"", direccion:r.direccion||"", comuna:r.comuna||"",
       telefono:r.telefono||"", producto:r.producto||"", hd:"", hh:"", horario:"", cantidad:r.cantidad||"",
       orden:r.orden||"", correo:r.correo||"", fecha:r.fecha||"", carpeta:carpeta||"", cortinas:r.cortinas||[], corteBase:r.corteBase||[], sel:false, obs:"" });
@@ -816,12 +817,9 @@
       '<div class="g-contacto">Taller · Av. Perú 01167, La Cisterna · www.rollermag.cl</div>'+
       '<div class="gt-infotitle">Información de Proyecto</div>'+info+body+
       '<div class="cf-spacer"></div><div class="conforme">'+
-        '<div class="cf-title">Conformidad del cliente</div>'+
-        '<div class="cf-txt">Declaro haber recibido conforme la instalación de las cortinas detalladas en esta guía, en buen estado y funcionando correctamente.</div>'+
-        '<div class="firmas">'+
-          '<div class="firma"><div class="line"></div><label>Firma cliente CONFORME:</label></div>'+
-          '<div class="firma"><div class="line"></div><label>RUT:</label></div>'+
-        '</div>'+
+        '<div class="cf-txt"><b>Conformidad del cliente:</b> Declaro haber recibido conforme la instalación de las cortinas detalladas en esta guía, en buen estado y funcionando correctamente.</div>'+
+        '<div class="cf-f"><div class="line"></div><label>Firma cliente CONFORME</label></div>'+
+        '<div class="cf-f"><div class="line"></div><label>RUT</label></div>'+
       '</div>';
   }
 
@@ -897,7 +895,16 @@
   }
   // lector de medidas desde el PDF de la cotización (mismo de ordenes-trabajo.html)
   function rmParseCorte(items){
-  items = items.filter(i => i.s && i.s.trim() !== "").map(i => ({...i, s:i.s.replace(/\s+/g," ").trim(), c:i.x+i.w/2}));
+  items = items.filter(i => i.s && i.s.trim() !== "");
+  // algunos PDF traen cada carácter suelto ("1" "," "62"): se unen los trozos pegados de una misma línea
+  items = (function(src){
+    const rows=[]; [...src].sort((a,b)=>a.y-b.y||a.x-b.x).forEach(it=>{
+      let R=rows.find(r=>Math.abs(r.y-it.y)<1.5); if(!R){R={y:it.y,its:[]};rows.push(R);} R.its.push({...it}); });
+    const out=[]; rows.forEach(R=>{ R.its.sort((a,b)=>a.x-b.x); let cur=null;
+      R.its.forEach(it=>{ if(cur && it.x-(cur.x+cur.w)<1.2 && it.x>=cur.x){ cur.s+=it.s; cur.w=Math.max(cur.w,it.x+it.w-cur.x); } else { if(cur) out.push(cur); cur={...it}; } });
+      if(cur) out.push(cur); });
+    return out;
+  })(items).map(i => ({...i, s:i.s.replace(/\s+/g," ").replace(/(\d)\s*,\s*(\d)/g,"$1,$2").trim(), c:i.x+i.w/2})).filter(i=>i.s!=="");
   const lines=[]; [...items].sort((a,b)=>a.y-b.y||a.x-b.x).forEach(it=>{
     let L=lines.find(l=>Math.abs(l.y-it.y)<2.5); if(!L){L={y:it.y,its:[]};lines.push(L);} L.its.push(it);});
   lines.forEach(l=>{l.its.sort((a,b)=>a.x-b.x); l.t=l.its.map(i=>i.s).join(" ");});
@@ -942,6 +949,21 @@
       for(let q=0;q<cant;q++){ const x=rmInterpret(base); x.item=a.s; ord.items.push(x); }
     });
   });
+  // Bloque "DATOS FABRICACIÓN" del cotizador nuevo: RM|orden|ítem|cant|ancho cm|alto cm|tipo|tela|ubicación
+  // Si viene, es la fuente más segura (no depende de la posición de las columnas).
+  const rmRows=[];
+  txt.split("\n").forEach(l=>{
+    const t=l.replace(/\s*\|\s*/g,"|").trim(); if(!/^RM\|/.test(t)) return;
+    const p=t.split("|"); if(p.length<9) return;
+    const num=v=>{ const n=parseFloat(String(v).replace(/\s/g,"").replace(",",".")); return isNaN(n)?"":n; };
+    const cant=parseInt(String(p[3]).replace(/\s/g,""))||1;
+    const base={ ubicacion:p.slice(8).join(" | ").trim(), cortinaPdf:p[6].trim(), tela:p[7].trim(), ancho:num(p[4]), alto:num(p[5]) };
+    for(let q=0;q<cant;q++){ const x=rmInterpret(base); x.item=String(p[2]).replace(/\s/g,""); rmRows.push(x); }
+  });
+  if(rmRows.length){
+    const faltan=ord.items.some(r=>r.ancho===""||r.alto===""||r.ancho==null||r.alto==null);
+    if(faltan || rmRows.length>=ord.items.length) ord.items=rmRows;
+  }
   return ord;
 }
   function buildCorte(f){ return (f.corteBase||[]).map(function(r){ return JSON.parse(JSON.stringify(r)); }); }
@@ -1039,8 +1061,8 @@
   $("btnTrabajoSel").addEventListener("click",function(){ generarTrabajo(selList()); });
   $("btnCorteSel").addEventListener("click",function(){ generarCorte(selList()); });
   /* La caja de conformidad del cliente va siempre al pie de la última hoja de cada guía de trabajo.
-     Se simula la paginación (A4 horizontal, márgenes 10 mm = 1047 x 718 px) y se rellena con espacio. */
-  var PAGE_W=1047, PAGE_H=718, SAFE=10;
+     Se simula la paginación (A4 horizontal con 6 mm de borde = 1077 x 748 px) y se rellena con espacio. */
+  var PAGE_W=1077, PAGE_H=748, SAFE=4;
   function fitConforme(){
     var g=$("guia"), pgs=g.querySelectorAll(".pg");
     if(!g.querySelector(".conforme")) return;
@@ -1068,8 +1090,18 @@
     });
     g.style.width=prevW; g.style.padding=prevP;
   }
-  window.addEventListener("beforeprint",fitConforme);
-  $("btnPrint").addEventListener("click",function(){ fitConforme(); window.print(); });
+  // envuelve la hoja en una tabla cuyo encabezado/pie vacíos (6 mm) se repiten en cada página = margen propio
+  function wrapPrint(){
+    var g=$("guia"); if(g.querySelector(":scope > table.pw")) return;
+    var t=document.createElement("table"); t.className="pw";
+    t.innerHTML='<thead><tr><td></td></tr></thead><tfoot><tr><td></td></tr></tfoot><tbody><tr><td></td></tr></tbody>';
+    var cell=t.tBodies[0].rows[0].cells[0];
+    while(g.firstChild) cell.appendChild(g.firstChild);
+    g.appendChild(t);
+  }
+  function prepPrint(){ wrapPrint(); fitConforme(); }
+  window.addEventListener("beforeprint",prepPrint);
+  $("btnPrint").addEventListener("click",function(){ prepPrint(); window.print(); });
   $("btnClose").addEventListener("click",function(){$("overlay").classList.remove("open");});
   $("overlay").addEventListener("click",function(e){if(e.target===this)this.classList.remove("open");});
   $("f_cantidad").addEventListener("keydown",function(e){if(e.key==="Enter")addOrSave();});
