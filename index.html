@@ -969,8 +969,14 @@
   }
   return ord;
 }
-  function buildCorte(f){ return (f.corteBase||[]).map(function(r){ return JSON.parse(JSON.stringify(r)); }); }
-  function corteRows(f){ if(!Array.isArray(f.corte)){ f.corte=buildCorte(f); save(); } return f.corte; }
+  // productos que se mandan a fabricar afuera: no van en la Orden de Corte (sí en despacho y trabajo)
+  function esExterno(r){ var c=rmNorm((r.cortinaPdf||"")+" "+(r.tipo||"")); return /toldo|vertical|persiana/.test(c); }
+  function buildCorte(f){ return (f.corteBase||[]).filter(function(r){return !esExterno(r);}).map(function(r){ return JSON.parse(JSON.stringify(r)); }); }
+  function corteRows(f){
+    if(!Array.isArray(f.corte)){ f.corte=buildCorte(f); save(); }
+    else if(f.corte.some(esExterno)){ f.corte=f.corte.filter(function(r){return !esExterno(r);}); save(); }
+    return f.corte;
+  }
   var EDIT=[["ubicacion","Ubicación (PDF)","text"],["ancho","Ancho","num"],["alto","Alto","num"],["tipo","Tipo de cortina","tipo"],
     ["tela","Tela","text"],["perfiles","Perfiles lat.","perfiles"],["confBlackout","Conf. blackout","conf"],["confScreen","Conf. screen","conf"],
     ["mando","Mando","mando"],["telaCenefa","Tela cenefa","telaCenefa"],["supleCant","Suple cant.","num"],["supleAncho","Suple ancho","supleAncho"],
@@ -995,6 +1001,9 @@
     list=(list||[]).filter(Boolean);
     if(!list.length){ toast("Marca al menos una orden"); return; }
     corteIds=list.map(function(f){return f.id;});
+    var hayCorte=list.some(function(f){return corteRows(f).length;});
+    var soloExt=list.every(function(f){ var b=f.corteBase||[]; return b.length&&b.every(esExterno); });
+    if(!hayCorte&&soloExt){ toast(list.length>1?"Estas órdenes no tienen cortinas para cortar en taller (se fabrican afuera)":"Esta orden no tiene cortinas para cortar en taller (toldos, verticales y persianas se fabrican afuera)"); return; }
     renderCorte();
     $("guiaTitle").textContent="Vista previa · Orden de Corte"+(list.length>1?" ("+list.length+")":"");
     $("overlay").classList.add("open");
@@ -1013,7 +1022,7 @@
     return '<div class="ce-ord"><h4>Orden #'+esc(f.orden||"—")+' · '+esc(f.cliente||"")+' · '+rows.length+' cortina(s)'+
       (faltan?'<span class="warn">⚠️ '+faltan+' dato(s) por completar</span>':'')+'</h4>'+
       (rows.length?'<div class="ce-scroll"><table class="ce"><tr><th>N°</th>'+EDIT.map(function(e){return '<th>'+e[1]+'</th>';}).join("")+'<th></th></tr>'+trs+'</table></div>'
-        :'<div style="font-size:.8rem;color:#777;line-height:1.5">'+((f.corteBase&&f.corteBase.length)?'Sin cortinas (las quitaste todas).':'Aún no tengo las medidas de esta orden. Aprieta <b>Conectar y cargar órdenes</b> (o arrastra su PDF) para leerlas de la cotización, o agrégalas a mano.')+'</div>')+
+        :'<div style="font-size:.8rem;color:#777;line-height:1.5">'+((f.corteBase&&f.corteBase.length&&f.corteBase.every(esExterno))?'Esta orden no tiene cortinas para cortar en taller (toldos, verticales y persianas se fabrican afuera).':(f.corteBase&&f.corteBase.length)?'Sin cortinas (las quitaste todas).':'Aún no tengo las medidas de esta orden. Aprieta <b>Conectar y cargar órdenes</b> (o arrastra su PDF) para leerlas de la cotización, o agrégalas a mano.')+'</div>')+
       '<button class="ce-btn" data-ceadd="'+f.id+'">+ Agregar cortina</button>'+
       ((f.corteBase||[]).length?'<button class="ce-btn" data-cereset="'+f.id+'">↺ Volver a leer del PDF</button>':'')+'</div>';
   }
